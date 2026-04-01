@@ -7,15 +7,20 @@ import { analyzeDataWithAI } from "./agent.js";
 import dotenv from "dotenv";
 dotenv.config();
 
-// ✅ REQUIRED ENV VALIDATION (ADD THIS)
 const requiredEnvVars = ["OPENAI_API_KEY", "SOLROUTER_API_KEY"];
+
+let hasError = false;
 
 requiredEnvVars.forEach((key) => {
   if (!process.env[key]) {
     console.error(`❌ Missing environment variable: ${key}`);
-    process.exit(1);
+    hasError = true;
   }
 });
+
+if (hasError) {
+  process.exit(1);
+}
 
 const app = express();
 app.use(express.json());
