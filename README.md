@@ -81,7 +81,10 @@ Environment Variables :
 Create a .env file in the root directory:
 
 touch .env
-Add your API key inside the .env file:
+Add your API keys inside the .env file:
+
+SOLROUTER_API_KEY=your_solrouter_api_key
+Replace your_solrouter_api_key with your actual API key
 
 OPENAI_API_KEY=your_openai_api_key
 Replace your_openai_api_key with your actual API key.
