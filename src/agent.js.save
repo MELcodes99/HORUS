@@ -1,0 +1,35 @@
+import "dotenv/config";
+import { fetchAllData } from "./fetchData.js";
+import * as SolRouterSDK from "@solrouter/sdk";
+import OpenAI from "openai";
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+async function analyzeDataWithAI(data, query) {
+  try {
+    // Build the analysis prompt
+    const prompt = `
+You are a crypto research analyst.
+
+User Query:
+${query}
+
+Market Data:
+- Odds: ${data.odds.probability}%
+- News Sentiment: ${data.news.sentiment}
+- GitHub Activity: ${data.github.activity}
+
+Task:
+- Summarize the situation
+- Identify if there is an edge
+- Provide a concise insight
+`;
+
+    // 🔐 SolRouter privacy layer
+    const publicKey = await SolRouterSDK.fetchTeePublicKey();
+    const encryptedPrompt = await SolRouterSDK.encrypt(publicKey, prompt);
+
+    console.log("\n🔐 Encrypted Prompt Prepared (TEE layer active)\n")
