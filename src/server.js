@@ -7,58 +7,107 @@ import { analyzeDataWithAI } from "./agent.js";
 import dotenv from "dotenv";
 dotenv.config();
 
+import OpenAI from "openai";
+import { SolRouter } from "@solrouter/sdk";
+
+// -----------------------------
+// 1. ENV VARIABLE VALIDATION
+// -----------------------------
 const requiredEnvVars = ["OPENAI_API_KEY", "SOLROUTER_API_KEY"];
 
-let hasError = false;
+let hasMissingEnv = false;
 
 requiredEnvVars.forEach((key) => {
   if (!process.env[key]) {
     console.error(`❌ Missing environment variable: ${key}`);
-    hasError = true;
+    hasMissingEnv = true;
   }
 });
 
-if (hasError) {
+if (hasMissingEnv) {
   process.exit(1);
 }
 
+console.log("✅ All environment variables loaded");
+
+// -----------------------------
+// 2. INITIALIZE CLIENTS
+// -----------------------------
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+const solrouter = new SolRouter({
+  apiKey: process.env.SOLROUTER_API_KEY,
+});
+
+// -----------------------------
+// 3. TEST OPENAI KEY
+// -----------------------------
+(async () => {
+  try {
+    await openai.models.list();
+    console.log("✅ OpenAI API key is valid");
+  } catch (err) {
+    console.error("❌ Invalid OpenAI API key");
+    process.exit(1);
+  }
+})();
+
+// -----------------------------
+// 4. TEST SOLROUTER KEY (SDK WAY)
+// -----------------------------
+(async () => {
+  try {
+    // Use a harmless test prompt
+    const res = await solrouter.chat("test connection");
+
+    if (!res || !res.message) throw new Error("Invalid response");
+
+    console.log("✅ SolRouter API key is valid");
+  } catch (err) {
+    console.error("❌ Invalid SolRouter API key");
+    console.error(err.message || err);
+    process.exit(1);
+  }
+})();
+
+// -----------------------------
+// 5. EXPRESS SETUP
+// -----------------------------
 const app = express();
 app.use(express.json());
-    
-// Fix for __dirname in ES modules
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Serve frontend
 app.use(express.static(path.join(__dirname, "../public")));
-        
-// API route
+
+// -----------------------------
+// 6. API ROUTE
+// -----------------------------
 app.post("/api/ask", async (req, res) => {
   try {
     const { message } = req.body;
-    
+
     console.log("📩 Incoming message:", message);
-      
-    // Validate input
+
     if (!message || message.trim() === "") {
       return res.status(400).json({
         success: false,
         error: "Message is required",
       });
     }
-      
-    // Call AI function
+
+    // Step 1: AI logic (OpenAI via your agent)
     const result = await analyzeDataWithAI(message);
-   
+
     console.log("🤖 RAW AI RESPONSE:", result);
 
-    // Parse AI JSON safely
     let parsed;
     try {
       parsed = JSON.parse(result);
     } catch (err) {
-      console.error("❌ JSON PARSE ERROR:", result);
-   
       return res.status(500).json({
         success: false,
         error: "AI returned invalid JSON",
@@ -66,10 +115,21 @@ app.post("/api/ask", async (req, res) => {
       });
     }
 
-    // Send structured response
+    // Step 2: SolRouter usage
+    let solrouterResponse = null;
+
+    try {
+      const solRes = await solrouter.chat(message);
+      solrouterResponse = solRes?.message || null;
+    } catch (err) {
+      console.warn("⚠️ SolRouter call failed:", err.message);
+    }
+
+    // Step 3: Return combined response
     return res.json({
       success: true,
       data: parsed,
+      solrouter: solrouterResponse,
     });
 
   } catch (err) {
@@ -81,11 +141,10 @@ app.post("/api/ask", async (req, res) => {
   }
 });
 
+// -----------------------------
 const PORT = 3000;
-    
-console.log("🔥 SERVER FILE EXECUTING");
-      
+
 app.listen(PORT, () => {
-  console.log(`🚀 Horus server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
 
