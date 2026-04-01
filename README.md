@@ -65,22 +65,35 @@ applications.
 
 ## ⚙️ Setup Instructions
 
-### 1. Clone the repository
 
-```bash
-git clone <https://github.com/MELcodes99/HORUS>
+Clone the repository:
+
+git clone https://github.com/MELcodes99/HORUS.git
+
+Navigate into the project directory:
+
 cd horus
+Install dependencies:
 
 npm install
 
+Environment Variables :
 Create a .env file in the root directory:
 
+touch .env
+Add your API key inside the .env file:
+
 OPENAI_API_KEY=your_openai_api_key
+Replace your_openai_api_key with your actual API key.
 
-RUN THE SERVER : node src/server.js
+Running the Application
+Start the server:
 
-Open your browser and visit : https://localhost:3000
+node src/server.js
+Accessing the Application
+Once the server is running, open your browser and go to:
 
+http://localhost:3000
 POST /api/ask
 
 Request:
