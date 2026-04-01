@@ -126,3 +126,4 @@ Designed for experimentation with AI + Web3 + privacy workflows
 This tool is for informational and educational purposes only. It does not 
 provide financial advice.
 # HORUS
+# HORUS
