@@ -72,7 +72,7 @@ git clone https://github.com/MELcodes99/HORUS.git
 
 Navigate into the project directory:
 
-cd horus
+cd HORUS
 Install dependencies:
 
 npm install
