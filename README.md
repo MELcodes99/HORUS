@@ -68,7 +68,7 @@ applications.
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone <https://github.com/MELcodes99/HORUS>
 cd horus
 
 npm install
