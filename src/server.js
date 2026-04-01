@@ -1,50 +1,45 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { analyzeDataWithAI } from "./agent.js";
-
-// Load environment variables
 import dotenv from "dotenv";
-dotenv.config();
-
 import OpenAI from "openai";
 import { SolRouter } from "@solrouter/sdk";
+import { analyzeDataWithAI } from "./agent.js";
+
+dotenv.config();
 
 // -----------------------------
-// 1. ENV VARIABLE VALIDATION
+// ENV VALIDATION
 // -----------------------------
-const requiredEnvVars = ["OPENAI_API_KEY", "SOLROUTER_API_KEY"];
-
-let hasMissingEnv = false;
-
-requiredEnvVars.forEach((key) => {
-  if (!process.env[key]) {
-    console.error(`❌ Missing environment variable: ${key}`);
-    hasMissingEnv = true;
+function requireEnv(key) {
+  const value = process.env[key];
+  if (!value || value.trim() === "") {
+    console.error(`❌ Missing or empty environment variable: ${key}`);
+    process.exit(1);
   }
-});
-
-if (hasMissingEnv) {
-  process.exit(1);
+  return value.trim();
 }
 
-console.log("✅ All environment variables loaded");
+const OPENAI_API_KEY = requireEnv("OPENAI_API_KEY");
+const SOLROUTER_API_KEY = requireEnv("SOLROUTER_API_KEY");
+
+console.log("✅ Environment variables loaded");
 
 // -----------------------------
-// 2. INITIALIZE CLIENTS
+// CLIENTS
 // -----------------------------
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: OPENAI_API_KEY,
 });
 
 const solrouter = new SolRouter({
-  apiKey: process.env.SOLROUTER_API_KEY,
+  apiKey: SOLROUTER_API_KEY,
 });
 
 // -----------------------------
-// 3. TEST OPENAI KEY
+// VALIDATE OPENAI (STRICT)
 // -----------------------------
-(async () => {
+async function validateOpenAI() {
   try {
     await openai.models.list();
     console.log("✅ OpenAI API key is valid");
@@ -52,99 +47,137 @@ const solrouter = new SolRouter({
     console.error("❌ Invalid OpenAI API key");
     process.exit(1);
   }
-})();
+}
 
 // -----------------------------
-// 4. TEST SOLROUTER KEY (SDK WAY)
+// VALIDATE SOLROUTER (SMART)
 // -----------------------------
-(async () => {
+async function validateSolRouter() {
   try {
-    // Use a harmless test prompt
-    const res = await solrouter.chat("test connection");
+    const response = await fetch("https://api.solrouter.com/agent", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SOLROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt: "test",
+        model: "gpt-oss:20b",
+        useTools: false,
+      }),
+    });
 
-    if (!res || !res.message) throw new Error("Invalid response");
+    const data = await response.json();
+
+    // ✅ Invalid API key
+    if (response.status === 401 || response.status === 403) {
+      console.error("❌ Invalid SolRouter API key");
+      process.exit(1);
+    }
+
+    // ⚠️ Service issue (NOT key issue)
+    if (response.status === 503) {
+      console.warn("⚠️ SolRouter service unavailable (503). Continuing anyway...");
+      return;
+    }
+
+    // Other non-OK responses
+    if (!response.ok) {
+      console.warn("⚠️ SolRouter returned unexpected response:", data);
+      return;
+    }
 
     console.log("✅ SolRouter API key is valid");
   } catch (err) {
-    console.error("❌ Invalid SolRouter API key");
-    console.error(err.message || err);
+    console.error("❌ SolRouter validation failed:", err.message);
     process.exit(1);
   }
-})();
+}
 
 // -----------------------------
-// 5. EXPRESS SETUP
+// BOOTSTRAP
 // -----------------------------
-const app = express();
-app.use(express.json());
+async function bootstrap() {
+  await validateOpenAI();
+  await validateSolRouter();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+  const app = express();
+  app.use(express.json());
 
-app.use(express.static(path.join(__dirname, "../public")));
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
 
-// -----------------------------
-// 6. API ROUTE
-// -----------------------------
-app.post("/api/ask", async (req, res) => {
-  try {
-    const { message } = req.body;
+  app.use(express.static(path.join(__dirname, "../public")));
 
-    console.log("📩 Incoming message:", message);
-
-    if (!message || message.trim() === "") {
-      return res.status(400).json({
-        success: false,
-        error: "Message is required",
-      });
-    }
-
-    // Step 1: AI logic (OpenAI via your agent)
-    const result = await analyzeDataWithAI(message);
-
-    console.log("🤖 RAW AI RESPONSE:", result);
-
-    let parsed;
+  // -----------------------------
+  // API ROUTE
+  // -----------------------------
+  app.post("/api/ask", async (req, res) => {
     try {
-      parsed = JSON.parse(result);
+      const { message } = req.body;
+
+      if (!message || message.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Message is required",
+        });
+      }
+
+      // OpenAI processing
+      const result = await analyzeDataWithAI(message);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(result);
+      } catch {
+        return res.status(500).json({
+          success: false,
+          error: "AI returned invalid JSON",
+        });
+      }
+
+      // SolRouter usage
+      let solrouterResponse = null;
+
+      try {
+        const solRes = await solrouter.chat(message);
+        solrouterResponse = solRes?.message || null;
+      } catch (err) {
+        console.error("❌ SolRouter request failed:", err.message);
+
+        // Distinguish runtime errors
+        return res.status(502).json({
+          success: false,
+          error: "SolRouter request failed (possible service issue or invalid request)",
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: parsed,
+        solrouter: solrouterResponse,
+      });
+
     } catch (err) {
+      console.error("❌ SERVER ERROR:", err);
+
       return res.status(500).json({
         success: false,
-        error: "AI returned invalid JSON",
-        raw: result,
+        error: err.message || "Something went wrong",
       });
     }
+  });
 
-    // Step 2: SolRouter usage
-    let solrouterResponse = null;
+  // -----------------------------
+  // START SERVER
+  // -----------------------------
+  const PORT = 3000;
 
-    try {
-      const solRes = await solrouter.chat(message);
-      solrouterResponse = solRes?.message || null;
-    } catch (err) {
-      console.warn("⚠️ SolRouter call failed:", err.message);
-    }
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  });
+}
 
-    // Step 3: Return combined response
-    return res.json({
-      success: true,
-      data: parsed,
-      solrouter: solrouterResponse,
-    });
-
-  } catch (err) {
-    console.error("❌ SERVER ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      error: err.message || "Something went wrong",
-    });
-  }
-});
-
-// -----------------------------
-const PORT = 3000;
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+// Run app
+bootstrap();
 
